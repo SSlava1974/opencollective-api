@@ -5,7 +5,7 @@ import { GraphQLDateTime } from 'graphql-scalars';
 
 import RateLimit, { ONE_HOUR_IN_SECONDS } from '../../../lib/rate-limit';
 import TwoFactorAuthLib from '../../../lib/two-factor-authentication';
-import { checkRemoteUserCanUseAccount } from '../../common/scope-check';
+import { checkRemoteUserCanUseAccount, enforceScope } from '../../common/scope-check';
 import { confirmUserEmail } from '../../common/user';
 import { RateLimitExceeded, Unauthorized } from '../../errors';
 import { GraphQLIndividual } from '../object/Individual';
@@ -84,8 +84,8 @@ const individualMutations = {
 
       let token;
 
-      // We don't want OAuth tokens to be exchanged against a session token
-      if (req.userToken?.type !== 'OAUTH') {
+      // We don't want OAuth/Personal tokens to be exchanged against a session token
+      if (!req.userToken && !req.personalToken) {
         // Context: this is token generation when updating password
         token = await user.generateSessionToken({
           sessionId: req.jwtPayload?.sessionId,
@@ -121,6 +121,8 @@ const individualMutations = {
       },
     },
     resolve: async (_, { token: confirmEmailToken }, req) => {
+      enforceScope(req, 'account');
+
       const user = await confirmUserEmail(confirmEmailToken);
       const individual = await user.getCollective({ loaders: req.loaders });
 
@@ -128,7 +130,7 @@ const individualMutations = {
       let token;
 
       // We don't want OAuth tokens to be exchanged against a session token
-      if (req.userToken?.type !== 'OAUTH') {
+      if (req.remoteUser && !req.userToken && !req.personalToken) {
         // Context: this is token generation when updating password
         token = await user.generateSessionToken({
           sessionId: req.jwtPayload?.sessionId,
