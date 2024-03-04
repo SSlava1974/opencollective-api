@@ -39,6 +39,7 @@ import Activity from './Activity';
 import Collective from './Collective';
 import CustomDataTypes from './DataTypes';
 import type Expense from './Expense';
+import type { ExpenseTaxDefinition } from './Expense';
 import Order, { OrderModelInterface, OrderTax } from './Order';
 import PaymentMethod, { PaymentMethodModelInterface } from './PaymentMethod';
 import PayoutMethod, { PayoutMethodTypes } from './PayoutMethod';
@@ -51,7 +52,7 @@ const { CONTRIBUTION, EXPENSE, ADDED_FUNDS } = TransactionKind;
 
 const debug = debugLib('models:Transaction');
 
-type Tax = Partial<OrderTax> & { rate?: number; idNumber?: string };
+type Tax = OrderTax | ExpenseTaxDefinition;
 
 export type TransactionData = {
   balanceTransaction?: Stripe.BalanceTransaction;
@@ -81,7 +82,6 @@ export type TransactionData = {
   refundReason?: string;
   refundTransactionId?: TransactionInterface['id'];
   review?: Stripe.Event; // Why not Stripe.Review? Who knows
-  settled?: boolean;
   tax?: Tax;
   taxAmountRemovedFromMigration?: number;
   taxMigration?: string;
@@ -589,7 +589,7 @@ Transaction.prototype.getRefundTransaction = function (): Promise<TransactionInt
 
 Transaction.prototype.hasPlatformTip = function (): boolean {
   return Boolean(
-    (this.data?.hasPlatformTip || this.data?.isFeesOnTop) &&
+    this.data?.hasPlatformTip &&
       this.kind !== TransactionKind.PLATFORM_TIP &&
       this.kind !== TransactionKind.PLATFORM_TIP_DEBT,
   );
@@ -1551,9 +1551,10 @@ Transaction.fetchHost = async (
     host = await Collective.findByPk(transaction.HostCollectiveId);
   }
   if (!host) {
-    console.warn(`transaction.HostCollectiveId should always bet set`);
-    const collective = await Collective.findByPk(transaction.CollectiveId);
-    host = await collective.getHostCollective();
+    throw new Error(`transaction.HostCollectiveId should always bet set`);
+    // console.warn(`transaction.HostCollectiveId should always bet set`);
+    // const collective = await Collective.findByPk(transaction.CollectiveId);
+    // host = await collective.getHostCollective();
   }
   return host;
 };
