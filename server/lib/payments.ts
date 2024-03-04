@@ -1118,6 +1118,7 @@ export const getHostFee = async (order: OrderModelInterface): Promise<number> =>
   return calcFee(totalAmount - taxAmount - platformTipAmount, hostFeePercent);
 };
 
+/*
 export const getPlatformFee = async (order: OrderModelInterface): Promise<number> => {
   const totalAmount = order.totalAmount || 0;
   const taxAmount = order.taxAmount || 0;
@@ -1127,6 +1128,7 @@ export const getPlatformFee = async (order: OrderModelInterface): Promise<number
 
   return calcFee(totalAmount - taxAmount - platformTipAmount, platformFeePercent);
 };
+*/
 
 export const isPlatformTipEligible = async (order: OrderModelInterface): Promise<boolean> => {
   if (!isNil(order.platformTipEligible)) {
