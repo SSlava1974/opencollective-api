@@ -706,6 +706,7 @@ Order.stopActiveSubscriptions = async function (
         INNER JOIN "Subscriptions" ON "Subscriptions".id = "Orders"."SubscriptionId"
         WHERE "Orders"."CollectiveId" = :collectiveId
         AND "Subscriptions"."isActive" IS TRUE
+        AND "Orders"."status" != :newStatus
       )
     `,
     {
