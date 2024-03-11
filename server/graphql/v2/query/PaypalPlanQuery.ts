@@ -58,8 +58,9 @@ const PaypalPlanQuery = {
 
     const tier =
       args.tier && <Tier>await fetchTierWithReference(args.tier, { loaders: req.loaders, throwIfMissing: true });
+    // TODO: FOr updating order, allow to keep the existing currency
     const expectedCurrency = tier?.currency || collective.currency;
-    const amount = getValueInCentsFromAmountInput(args.amount, { expectedCurrency, allowNilCurrency: false });
+    const amount = getValueInCentsFromAmountInput(args.amount, { allowNilCurrency: false });
     const currency = args.amount.currency;
     const host = await collective.getHostCollective({ loaders: req.loaders });
     return getOrCreatePlan(host, collective, interval, amount, currency, tier);

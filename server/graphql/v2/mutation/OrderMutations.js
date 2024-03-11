@@ -283,7 +283,9 @@ const orderMutations = {
       await twoFactorAuthLib.enforceForAccount(req, order.fromCollective, { onlyAskOnLogin: true });
 
       await order.update({ status: OrderStatuses.CANCELLED });
-      await order.Subscription.deactivate();
+      if (order.Subscription?.isActive) {
+        await order.Subscription.deactivate();
+      }
 
       await models.Activity.create({
         type: activities.SUBSCRIPTION_CANCELED,
@@ -338,9 +340,9 @@ const orderMutations = {
 
       const decodedId = idDecode(args.order.id, IDENTIFIER_TYPES.ORDER);
       const haveDetailsChanged = !isUndefined(args.amount) || !isUndefined(args.tier);
-      const hasPaymentMethodChanged = !isUndefined(args.paymentMethod);
+      const hasPaymentMethodChanged = !isUndefined(args.paymentMethod) || Boolean(args.paypalSubscriptionId);
 
-      const order = await models.Order.findOne({
+      let order = await models.Order.findOne({
         where: { id: decodedId },
         include: [
           { model: models.Subscription, required: true },
@@ -355,25 +357,27 @@ const orderMutations = {
         throw new ValidationFailed('This order does not seem to exist');
       } else if (!req.remoteUser.isAdminOfCollective(order.fromCollective) && !req.remoteUser.isRoot()) {
         throw new Unauthorized("You don't have permission to update this order");
-      } else if (!order.Subscription.isActive) {
+      } else if (!order.Subscription.isActive && order.status !== OrderStatuses.PAUSED) {
         throw new Error('Order must be active to be updated');
-      } else if (order.status === OrderStatuses.PAUSED) {
-        throw new Error('Paused orders cannot be updated');
       } else if (args.paypalSubscriptionId && args.paymentMethod) {
         throw new Error('paypalSubscriptionId and paymentMethod are mutually exclusive');
-      } else if (haveDetailsChanged && hasPaymentMethodChanged) {
-        // There's no transaction/rollback strategy if updating the payment method fails
+      } else if (haveDetailsChanged && !isUndefined(args.paymentMethod)) {
+        // For non-paypal contributions, there's no transaction/rollback strategy if updating the payment method fails
         // after updating the order. We could end up with partially migrated subscriptions
         // if we allow changing both at the same time.
         throw new Error(
           'Amount and payment method cannot be updated at the same time, please update one after the other',
         );
+      } else if (order.status === OrderStatuses.PAUSED && order.data?.needsAsyncDeactivation) {
+        throw new Error('This order is currently being synchronized, please try again later');
       }
 
       // Check 2FA
       await twoFactorAuthLib.enforceForAccount(req, order.fromCollective, { onlyAskOnLogin: true });
 
       let previousOrderValues, previousSubscriptionValues;
+
+      // Update details (eg. amount, tier)
       if (haveDetailsChanged) {
         // Update details (eg. amount, tier)
         const tier =
@@ -403,22 +407,29 @@ const orderMutations = {
         ));
       }
 
-      if (args.paypalSubscriptionId) {
-        // Update from PayPal subscription ID
-        try {
-          return updateSubscriptionWithPaypal(req.remoteUser, order, args.paypalSubscriptionId);
-        } catch (error) {
-          // Restore original subscription if it was modified
-          if (haveDetailsChanged) {
-            await updateOrderSubscription(order, previousOrderValues, previousSubscriptionValues);
-          }
+      if (hasPaymentMethodChanged) {
+        if (args.paypalSubscriptionId) {
+          // Update from PayPal subscription ID
+          try {
+            order = await updateSubscriptionWithPaypal(req.remoteUser, order, args.paypalSubscriptionId);
+          } catch (error) {
+            // Restore original subscription if it was modified
+            if (haveDetailsChanged) {
+              await updateOrderSubscription(order, previousOrderValues, previousSubscriptionValues);
+            }
 
-          throw error;
+            throw error;
+          }
+        } else {
+          // Update payment method
+          const newPaymentMethod = await fetchPaymentMethodWithReference(args.paymentMethod);
+          order = await updatePaymentMethodForSubscription(req.remoteUser, order, newPaymentMethod);
         }
-      } else if (hasPaymentMethodChanged) {
-        // Update payment method
-        const newPaymentMethod = await fetchPaymentMethodWithReference(args.paymentMethod);
-        return updatePaymentMethodForSubscription(req.remoteUser, order, newPaymentMethod);
+
+        // Unpause contribution
+        if (order.status === OrderStatuses.PAUSED) {
+          await order.unpause(req.remoteUser, { UserTokenId: req.userToken?.id });
+        }
       }
 
       return order;
